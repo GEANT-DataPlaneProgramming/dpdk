@@ -9,6 +9,10 @@
 #include <sys/queue.h>
 #include <arpa/inet.h>
 
+// NEW
+#include <time.h>
+// NEW
+
 #include <rte_common.h>
 #include <rte_prefetch.h>
 #include <rte_byteorder.h>
@@ -278,6 +282,11 @@ struct header_out_runtime {
  */
 
 enum instruction_type {
+
+	// NEW
+		INSTR_TIME,
+	// NEW
+
 	/* rx m.port_in */
 	INSTR_RX,
 
@@ -2797,6 +2806,59 @@ thread_yield_cond(struct rte_swx_pipeline *p, int cond)
 {
 	p->thread_id = (p->thread_id + cond) & (RTE_SWX_PIPELINE_THREADS_MAX - 1);
 }
+
+// NEW
+	static int
+	instr_time_translate(struct rte_swx_pipeline *p,
+			   struct action *action,
+			   char **tokens,
+			   int n_tokens,
+			   struct instruction *instr,
+			   struct instruction_data *data __rte_unused)
+	{
+		char *dst = tokens[1], *src = tokens[2];
+		struct field *fdst;
+		uint64_t src_val;
+		uint32_t dst_struct_id = 0, src_struct_id = 0;
+
+		CHECK(n_tokens == 2, EINVAL);
+
+		fdst = struct_field_parse(p, NULL, dst, &dst_struct_id);
+		CHECK(fdst, EINVAL);
+
+		/* MOV_I. */
+
+		struct timespec ts;
+		clock_gettime(CLOCK_REALTIME, &ts);
+		uint64_t ts_ns = ts.tv_sec * (uint64_t)1000000000L + ts.tv_nsec;
+		src_val = ts_ns;
+
+		instr->type = INSTR_TIME;
+		instr->mov.dst.struct_id = (uint8_t)dst_struct_id;
+		instr->mov.dst.n_bits = fdst->n_bits;
+		instr->mov.dst.offset = fdst->offset / 8;
+		instr->mov.src_val = src_val;
+		return 0;
+	}
+// NEW
+// NEW
+	static inline void
+	instr_time_exec(struct rte_swx_pipeline *p)
+	{
+		struct thread *t = &p->threads[p->thread_id];
+		struct instruction *ip = t->ip;
+
+		TRACE("[Thread %2u] time m.f %" PRIx64 "\n",
+		      p->thread_id,
+		      ip->mov.src_val);
+
+		MOV_I(t, ip);
+
+		/* Thread. */
+		thread_ip_inc(p);
+	}
+// NEW
+
 
 /*
  * rx.
@@ -7637,6 +7699,16 @@ instr_translate(struct rte_swx_pipeline *p,
 		CHECK(n_tokens - tpos, EINVAL);
 	}
 
+	// NEW
+		if (!strcmp(tokens[tpos], "time"))
+			return instr_time_translate(p,
+					  action,
+					  &tokens[tpos],
+					  n_tokens - tpos,
+					  instr,
+					  data);
+	// NEW
+
 	/* Identify the instruction type. */
 	if (!strcmp(tokens[tpos], "rx"))
 		return instr_rx_translate(p,
@@ -8677,6 +8749,9 @@ static instr_exec_t instruction_table[] = {
 	[INSTR_MOV_HM] = instr_mov_hm_exec,
 	[INSTR_MOV_HH] = instr_mov_hh_exec,
 	[INSTR_MOV_I] = instr_mov_i_exec,
+	
+	// NEW
+	[INSTR_TIME] = instr_time_exec,
 
 	[INSTR_DMA_HT] = instr_dma_ht_exec,
 	[INSTR_DMA_HT2] = instr_dma_ht2_exec,
