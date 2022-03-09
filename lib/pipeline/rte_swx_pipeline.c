@@ -2851,7 +2851,13 @@ thread_yield_cond(struct rte_swx_pipeline *p, int cond)
 		TRACE("[Thread %2u] time m.f %" PRIx64 "\n",
 		      p->thread_id,
 		      ip->mov.src_val);
-
+		
+		struct timespec ts;
+		clock_gettime(CLOCK_REALTIME, &ts);
+		uint64_t ts_ns = ts.tv_sec * (uint64_t)1000000000L + ts.tv_nsec;
+		val = ts_ns;
+		(ip)->mov.src_val = val;
+		
 		MOV_I(t, ip);
 
 		/* Thread. */
